@@ -19,29 +19,26 @@ io.on('connection', (socket) => {
     socket.on('findMatch', (data) => {
         socket.playerName = data.name || 'Player';
 
-        // ป้องกันการใส่ Socket เดิมซ้ำใน waitingQueue
+        // ป้องกัน Socket ซ้ำในคิว
         waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
         waitingQueue.push(socket);
 
+        // เมื่อครบ 2 คน เริ่มจับคู่ทันที
         if (waitingQueue.length >= 2) {
             const p1 = waitingQueue.shift();
             const p2 = waitingQueue.shift();
 
-            // ตรวจสอบว่าทั้งคู่ยังอยู๋ในการเชื่อมต่อจริง
-            if (!p1.connected) {
-                if (p2.connected) waitingQueue.unshift(p2);
-                return;
-            }
-            if (!p2.connected) {
+            if (!p1.connected || !p2.connected) {
                 if (p1.connected) waitingQueue.unshift(p1);
+                if (p2.connected) waitingQueue.unshift(p2);
                 return;
             }
 
             const roomId = 'ROOM_' + Math.floor(1000 + Math.random() * 9000);
 
             roomData[roomId] = {
-                p1: { id: p1.id, name: p1.playerName, isReady: false, score: 0 },
-                p2: { id: p2.id, name: p2.playerName, isReady: false, score: 0 },
+                p1: { id: p1.id, name: p1.playerName, score: 0 },
+                p2: { id: p2.id, name: p2.playerName, score: 0 },
                 timeLeft: 180,
                 currentOrder: getRandomOrder(),
                 gameInterval: null
@@ -49,48 +46,34 @@ io.on('connection', (socket) => {
 
             p1.join(roomId);
             p2.join(roomId);
-
             p1.roomId = roomId;
             p2.roomId = roomId;
 
+            // แจ้งเตือนฝั่ง Client และสั่งเริ่มเกมทันที
             p1.emit('joinedRoom', { roomId: roomId, role: 'p1' });
             p2.emit('joinedRoom', { roomId: roomId, role: 'p2' });
 
-            io.to(roomId).emit('lobbyUpdate', roomData[roomId]);
-        }
-    });
+            io.to(roomId).emit('gameStart');
+            io.to(roomId).emit('newOrder', roomData[roomId].currentOrder);
 
-    socket.on('toggleReady', (data) => {
-        const room = roomData[data.roomId];
-        if (room) {
-            if (data.role === 'p1') room.p1.isReady = data.isReady;
-            if (data.role === 'p2') room.p2.isReady = data.isReady;
+            // เริ่มนับเวลาถอยหลังทันที
+            roomData[roomId].gameInterval = setInterval(() => {
+                if (roomData[roomId]) {
+                    roomData[roomId].timeLeft--;
+                    io.to(roomId).emit('timerUpdate', roomData[roomId].timeLeft);
 
-            io.to(data.roomId).emit('lobbyUpdate', room);
-
-            // เริ่มเกมเฉพาะเมื่อพร้อมทั้งคู่ และยังไม่ได้เริ่ม Timer
-            if (room.p1.isReady && room.p2.isReady && !room.gameInterval) {
-                io.to(data.roomId).emit('gameStart');
-                io.to(data.roomId).emit('newOrder', room.currentOrder);
-
-                room.gameInterval = setInterval(() => {
-                    if (roomData[data.roomId]) {
-                        roomData[data.roomId].timeLeft--;
-                        io.to(data.roomId).emit('timerUpdate', roomData[data.roomId].timeLeft);
-
-                        if (roomData[data.roomId].timeLeft <= 0) {
-                            clearInterval(roomData[data.roomId].gameInterval);
-                            io.to(data.roomId).emit('gameOver', {
-                                p1: roomData[data.roomId].p1.score,
-                                p2: roomData[data.roomId].p2.score
-                            });
-                            delete roomData[data.roomId];
-                        }
-                    } else {
-                        clearInterval(room.gameInterval);
+                    if (roomData[roomId].timeLeft <= 0) {
+                        clearInterval(roomData[roomId].gameInterval);
+                        io.to(roomId).emit('gameOver', {
+                            p1: roomData[roomId].p1.score,
+                            p2: roomData[roomId].p2.score
+                        });
+                        delete roomData[roomId];
                     }
-                }, 1000);
-            }
+                } else {
+                    clearInterval(roomData[roomId].gameInterval);
+                }
+            }, 1000);
         }
     });
 
@@ -114,10 +97,8 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        // ลบออกจากคิวรอ
         waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
 
-        // จัดการกรณีผู้เล่นหลุดออกจากห้อง
         if (socket.roomId && roomData[socket.roomId]) {
             const roomId = socket.roomId;
             if (roomData[roomId].gameInterval) {
@@ -131,3 +112,4 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => console.log('Cooking Battle Server online on port ' + PORT));
+                    
