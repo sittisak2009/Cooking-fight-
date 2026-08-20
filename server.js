@@ -483,4 +483,58 @@ let waitingQueue = [];
 let roomData = {};
 
 io.on('connection', (socket) => {
-    socket.on('joi
+    socket.on('joinMatchmaking', () => {
+        if (!waitingQueue.includes(socket.id)) {
+            waitingQueue.push(socket.id);
+        }
+
+        if (waitingQueue.length >= 2) {
+            const p1Socket = waitingQueue.shift();
+            const p2Socket = waitingQueue.shift();
+            const roomId = 'room_' + Date.now();
+
+            roomData[roomId] = { p1Score: 0, p2Score: 0, timeLeft: 90 };
+
+            io.to(p1Socket).emit('matchStart', { roomId: roomId, role: 'p1' });
+            io.to(p2Socket).emit('matchStart', { roomId: roomId, role: 'p2' });
+
+            const timerInterval = setInterval(() => {
+                if(roomData[roomId]) {
+                    roomData[roomId].timeLeft--;
+                    io.emit('timerUpdate', roomData[roomId].timeLeft);
+
+                    if(roomData[roomId].timeLeft <= 0) {
+                        clearInterval(timerInterval);
+                        io.emit('gameOver', { p1: roomData[roomId].p1Score, p2: roomData[roomId].p2Score });
+                        delete roomData[roomId];
+                    }
+                } else {
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
+        }
+    });
+
+    socket.on('playerMove', (data) => {
+        socket.broadcast.emit('playerMoved', data);
+    });
+
+    socket.on('updateHolding', (data) => {
+        socket.broadcast.emit('holdingUpdated', data);
+    });
+
+    socket.on('updateScore', (data) => {
+        if(roomData[data.roomId]) {
+            if(data.role === 'p1') roomData[data.roomId].p1Score = data.score;
+            if(data.role === 'p2') roomData[data.roomId].p2Score = data.score;
+        }
+        io.emit('scoreUpdated', data);
+    });
+
+    socket.on('disconnect', () => {
+        waitingQueue = waitingQueue.filter(id => id !== socket.id);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log('Server running on port ' + PORT));
