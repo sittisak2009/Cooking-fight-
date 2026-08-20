@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Cooking Online 1v1 - Full Game</title>
+    <title>3D Cooking Online 1v1 - Complete</title>
     <style>
         * { box-sizing: border-box; touch-action: none; margin: 0; padding: 0; user-select: none; }
         body { background: #0e0e17; font-family: sans-serif; overflow: hidden; color: #fff; }
@@ -37,12 +37,33 @@ app.get('/', (req, res) => {
         .top-bar { position: absolute; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; font-weight: bold; }
         .p-tag { background: rgba(0,0,0,0.75); padding: 8px 15px; border-radius: 8px; font-size: 14px; }
         
-        #item-status {
-            position: absolute; top: 60px; left: 15px; background: rgba(0,0,0,0.8);
-            padding: 10px; border-radius: 8px; font-size: 14px; color: #ffca28;
+        #timer-box {
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+            background: #ff5722; padding: 8px 20px; border-radius: 20px;
+            font-size: 20px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
 
-        /* ปุ่มเดินและปุ่มแอ็กชันมือถือ */
+        #item-status {
+            position: absolute; top: 65px; left: 15px; background: rgba(0,0,0,0.8);
+            padding: 8px 12px; border-radius: 8px; font-size: 13px; color: #ffca28;
+        }
+
+        /* 3D UI Overlay (เขียง/เตา) */
+        .progress-container {
+            position: absolute; width: 80px; height: 12px; background: rgba(0,0,0,0.6);
+            border: 2px solid #fff; border-radius: 6px; overflow: hidden; display: none;
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 15;
+        }
+        .progress-bar { width: 0%; height: 100%; background: #2196f3; transition: width 0.1s linear; }
+        
+        .status-badge {
+            position: absolute; padding: 3px 8px; background: rgba(0,0,0,0.8);
+            border-radius: 10px; font-size: 11px; font-weight: bold; color: #fff;
+            transform: translate(-50%, -50%); display: none; pointer-events: none; z-index: 15;
+            white-space: nowrap;
+        }
+
+        /* ปุ่มเดินและปุ่มทำอาหาร */
         .controls { 
             position: absolute; bottom: 20px; left: 20px; 
             display: grid; grid-template-columns: repeat(3, 50px); gap: 6px; 
@@ -79,15 +100,29 @@ app.get('/', (req, res) => {
 <div id="searching-screen" class="overlay-screen" style="display: none;">
     <div class="spinner"></div>
     <h2 style="margin-bottom: 10px;">กำลังค้นหาคู่แข่ง...</h2>
-    <p style="color: #aaa; font-size: 14px;">PC: เดินด้วย W A S D / กด E เพื่อทำอาหาร | Mobile: ใช้ปุ่มบนจอ</p>
+    <p style="color: #aaa; font-size: 14px;">PC: เดิน W A S D / กด E ทำอาหาร | Mobile: ใช้ปุ่มบนจอ</p>
 </div>
+
+<div id="gameover-screen" class="overlay-screen" style="display: none;">
+    <h1 id="winner-title" style="color: #ffca28; margin-bottom: 15px; font-size: 32px;">จบการแข่งขัน!</h1>
+    <h2 id="winner-desc" style="margin-bottom: 30px; color: #fff;"></h2>
+    <button class="start-btn" onclick="location.reload()">เล่นใหม่อีกครั้ง</button>
+</div>
+
+<!-- UI หลอดเวลาลอยบน 3D (Stove & Chopper) -->
+<div id="stove-ui" class="progress-container"><div id="stove-bar" class="progress-bar"></div></div>
+<div id="stove-badge" class="status-badge">กำลังต้ม...</div>
+
+<div id="chop-ui" class="progress-container"><div id="chop-bar" class="progress-bar"></div></div>
+<div id="chop-badge" class="status-badge" style="background: #ff9800;">กำลังหั่น...</div>
 
 <div id="game-ui">
     <div class="top-bar">
-        <div class="p-tag" style="border-left: 4px solid #2196f3;" id="p1-label">คุณ (P1): <span id="p1-score">0</span> คะแนน</div>
-        <div class="p-tag" style="border-left: 4px solid #f44336;" id="p2-label">คู่แข่ง (P2): <span id="p2-score">0</span> คะแนน</div>
+        <div class="p-tag" style="border-left: 4px solid #2196f3;" id="p1-label">คุณ (P1): <span id="p1-score">0</span></div>
+        <div class="p-tag" style="border-left: 4px solid #f44336;" id="p2-label">คู่แข่ง (P2): <span id="p2-score">0</span></div>
     </div>
 
+    <div id="timer-box">90</div>
     <div id="item-status">ในมือ: <span id="holding-text" style="color:#fff;">ไม่มี</span></div>
     
     <div class="controls">
@@ -123,12 +158,55 @@ app.get('/', (req, res) => {
 
     let scene, camera, renderer, p1Mesh, p2Mesh;
     let crateStation, chopStation, stoveStation, serveStation;
-    let myHolding = null; // null, "Raw", "Chopped", "Cooked"
-    let stoveState = "ว่าง"; // "ว่าง", "กำลังต้ม...", "สุกแล้ว!"
-    let stoveTimer = 0;
+    let myHolding = null;
     let myScore = 0;
+    let isGameOver = false;
 
+    // สถานะเตา และ เขียง
+    let stoveState = "ว่าง"; // "ว่าง", "กำลังต้ม", "สุกแล้ว"
+    let stoveTimer = 0;
+    const STOVE_TIME = 4.0; // ต้ม 4 วินาที
+
+    let isChopping = false;
+    let chopTimer = 0;
+    const CHOP_TIME = 2.0; // หั่น 2 วินาที
+
+    let p1ItemMesh, p2ItemMesh;
     const move = { up: false, down: false, left: false, right: false };
+
+    function createFoodMesh(type) {
+        let geo, mat;
+        if(type === "Raw") {
+            geo = new THREE.DodecahedronGeometry(0.25);
+            mat = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
+        } else if(type === "Chopped") {
+            geo = new THREE.BoxGeometry(0.3, 0.1, 0.3);
+            mat = new THREE.MeshStandardMaterial({ color: 0x8bc34a });
+        } else if(type === "Cooked") {
+            geo = new THREE.SphereGeometry(0.25);
+            mat = new THREE.MeshStandardMaterial({ color: 0xff9800 });
+        } else {
+            return null;
+        }
+        const m = new THREE.Mesh(geo, mat);
+        m.position.y = 1.0;
+        return m;
+    }
+
+    function updateHoldingVisual(role, itemType) {
+        const targetMesh = (role === 'p1') ? p1Mesh : p2Mesh;
+        if(role === 'p1' && p1ItemMesh) { p1Mesh.remove(p1ItemMesh); p1ItemMesh = null; }
+        if(role === 'p2' && p2ItemMesh) { p2Mesh.remove(p2ItemMesh); p2ItemMesh = null; }
+
+        if(itemType) {
+            const newItem = createFoodMesh(itemType);
+            if(newItem) {
+                targetMesh.add(newItem);
+                if(role === 'p1') p1ItemMesh = newItem;
+                if(role === 'p2') p2ItemMesh = newItem;
+            }
+        }
+    }
 
     function init3DScene() {
         const container = document.getElementById('canvas-container');
@@ -148,12 +226,10 @@ app.get('/', (req, res) => {
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-        // พื้นสนาม
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 9), new THREE.MeshStandardMaterial({ color: 0x2e2e48 }));
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        // โต๊ะทำอาหารประเภทต่างๆ (Stations)
         function createStation(x, z, color) {
             const m = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: color }));
             m.position.set(x, 0.4, z);
@@ -161,12 +237,11 @@ app.get('/', (req, res) => {
             return m;
         }
 
-        crateStation = createStation(-4, -2, 0x4caf50);  // ลังดิบ (เขียว)
-        chopStation  = createStation(-1.3, -2, 0xff9800); // เขียง (ส้ม)
-        stoveStation = createStation(1.3, -2, 0xf44336);   // เตา (แดง)
-        serveStation = createStation(4, -2, 0xffeb3b);   // โต๊ะส่ง (เหลือง)
+        crateStation = createStation(-4, -2, 0x4caf50);  
+        chopStation  = createStation(-1.3, -2, 0xff9800); 
+        stoveStation = createStation(1.3, -2, 0xf44336);   
+        serveStation = createStation(4, -2, 0xffeb3b);   
 
-        // ผู้เล่น P1 / P2
         p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.8), new THREE.MeshStandardMaterial({ color: 0x2196f3 }));
         p1Mesh.position.set(-3, 0.6, 2);
         scene.add(p1Mesh);
@@ -180,35 +255,58 @@ app.get('/', (req, res) => {
     }
 
     function interact() {
+        if(isGameOver || isChopping) return;
         const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
 
-        // 1. หยิบผักดิบจากลังเขียว
+        // 1. หยิบผักดิบ
         if(myMesh.position.distanceTo(crateStation.position) < 1.8 && !myHolding) {
-            myHolding = "ผักดิบ";
+            myHolding = "Raw";
         }
-        // 2. หั่นที่เขียงส้ม
-        else if(myMesh.position.distanceTo(chopStation.position) < 1.8 && myHolding === "ผักดิบ") {
-            myHolding = "ผักหั่นแล้ว";
+        // 2. เริ่มหั่นผักที่เขียง
+        else if(myMesh.position.distanceTo(chopStation.position) < 1.8 && myHolding === "Raw") {
+            isChopping = true;
+            chopTimer = 0;
         }
-        // 3. ใส่ต้มที่เตาแดง / หยิบออกจากเตา
+        // 3. วางผักลงเตา / หยิบออกจากเตา
         else if(myMesh.position.distanceTo(stoveStation.position) < 1.8) {
-            if(myHolding === "ผักหั่นแล้ว" && stoveState === "ว่าง") {
+            if(myHolding === "Chopped" && stoveState === "ว่าง") {
                 myHolding = null;
-                stoveState = "กำลังต้ม...";
+                stoveState = "กำลังต้ม";
                 stoveTimer = 0;
-            } else if(!myHolding && stoveState === "สุกแล้ว!") {
-                myHolding = "ต้มผักสุก";
+            } else if(!myHolding && stoveState === "สุกแล้ว") {
+                myHolding = "Cooked";
                 stoveState = "ว่าง";
             }
         }
-        // 4. ส่งอาหารที่โต๊ะเหลือง
-        else if(myMesh.position.distanceTo(serveStation.position) < 1.8 && myHolding === "ต้มผักสุก") {
+        // 4. ส่งอาหาร
+        else if(myMesh.position.distanceTo(serveStation.position) < 1.8 && myHolding === "Cooked") {
             myHolding = null;
             myScore += 100;
             socket.emit('updateScore', { roomId: roomId, role: myRole, score: myScore });
         }
 
-        document.getElementById('holding-text').innerText = myHolding || 'ไม่มี';
+        const textMap = { 'Raw': 'ผักดิบ', 'Chopped': 'ผักหั่นแล้ว', 'Cooked': 'ต้มผักสุก' };
+        document.getElementById('holding-text').innerText = textMap[myHolding] || 'ไม่มี';
+
+        updateHoldingVisual(myRole, myHolding);
+        socket.emit('updateHolding', { roomId: roomId, role: myRole, item: myHolding });
+    }
+
+    // คำนวณพิกัด 3D แปลงเป็น 2D บนหน้าจอ
+    function toScreenPosition(obj, camera) {
+        var vector = new THREE.Vector3();
+        obj.updateMatrixWorld();
+        vector.setFromMatrixPosition(obj.matrixWorld);
+        vector.y += 1.2; // สูงเหนือวัตถุ
+        vector.project(camera);
+
+        var widthHalf = window.innerWidth / 2;
+        var heightHalf = window.innerHeight / 2;
+
+        return {
+            x: (vector.x * widthHalf) + widthHalf,
+            y: -(vector.y * heightHalf) + heightHalf
+        };
     }
 
     function setupControls() {
@@ -249,9 +347,35 @@ app.get('/', (req, res) => {
         if(data.role === 'p2') p2Mesh.position.set(data.x, 0.6, data.z);
     });
 
+    socket.on('holdingUpdated', (data) => {
+        if(data.role !== myRole) {
+            updateHoldingVisual(data.role, data.item);
+        }
+    });
+
     socket.on('scoreUpdated', (data) => {
         if(data.role === 'p1') document.getElementById('p1-score').innerText = data.score;
         if(data.role === 'p2') document.getElementById('p2-score').innerText = data.score;
+    });
+
+    socket.on('timerUpdate', (time) => {
+        document.getElementById('timer-box').innerText = time;
+    });
+
+    socket.on('gameOver', (scores) => {
+        isGameOver = true;
+        document.getElementById('game-ui').style.display = 'none';
+        document.getElementById('gameover-screen').style.display = 'flex';
+
+        const p1S = scores.p1;
+        const p2S = scores.p2;
+        let winText = "";
+
+        if(p1S === p2S) winText = "เสมอกัน! " + p1S + " คะแนน";
+        else if((myRole === 'p1' && p1S > p2S) || (myRole === 'p2' && p2S > p1S)) winText = "🏆 คุณชนะ! คะแนน: " + (myRole === 'p1' ? p1S : p2S);
+        else winText = "❌ คุณแพ้! คะแนนคู่แข่ง: " + (myRole === 'p1' ? p2S : p1S);
+
+        document.getElementById('winner-desc').innerText = winText;
     });
 
     let lastTime = performance.now();
@@ -261,73 +385,94 @@ app.get('/', (req, res) => {
         const delta = (currentTime - lastTime) / 1000;
         lastTime = currentTime;
 
-        // ระบบเวลาต้มอาหาร
-        if(stoveState === "กำลังต้ม...") {
-            stoveTimer += delta;
-            if(stoveTimer >= 4) {
-                stoveState = "สุกแล้ว!";
+        // --- ระบบหั่นผัก ---
+        if(isChopping) {
+            chopTimer += delta;
+            const progress = Math.min((chopTimer / CHOP_TIME) * 100, 100);
+            
+            const chopPos = toScreenPosition(chopStation, camera);
+            const chopUI = document.getElementById('chop-ui');
+            const chopBadge = document.getElementById('chop-badge');
+
+            chopUI.style.display = 'block';
+            chopUI.style.left = chopPos.x + 'px';
+            chopUI.style.top = (chopPos.y - 20) + 'px';
+            document.getElementById('chop-bar').style.width = progress + '%';
+
+            chopBadge.style.display = 'block';
+            chopBadge.style.left = chopPos.x + 'px';
+            chopBadge.style.top = (chopPos.y - 40) + 'px';
+
+            if(chopTimer >= CHOP_TIME) {
+                isChopping = false;
+                myHolding = "Chopped";
+                document.getElementById('holding-text').innerText = "ผักหั่นแล้ว";
+                updateHoldingVisual(myRole, myHolding);
+                socket.emit('updateHolding', { roomId: roomId, role: myRole, item: myHolding });
+
+                chopUI.style.display = 'none';
+                chopBadge.style.display = 'none';
             }
         }
 
-        const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
-        const speed = 0.08;
-        let moved = false;
+        // --- ระบบเวลาเตาต้ม ---
+        const stovePos = toScreenPosition(stoveStation, camera);
+        const stoveUI = document.getElementById('stove-ui');
+        const stoveBadge = document.getElementById('stove-badge');
 
-        if (move.up && myMesh.position.z > -4) { myMesh.position.z -= speed; moved = true; }
-        if (move.down && myMesh.position.z < 4) { myMesh.position.z += speed; moved = true; }
-        if (move.left && myMesh.position.x > -5) { myMesh.position.x -= speed; moved = true; }
-        if (move.right && myMesh.position.x < 5) { myMesh.position.x += speed; moved = true; }
+        if(stoveState === "กำลังต้ม") {
+            stoveTimer += delta;
+            const progress = Math.min((stoveTimer / STOVE_TIME) * 100, 100);
 
-        if (moved) {
-            socket.emit('playerMove', { roomId: roomId, role: myRole, x: myMesh.position.x, z: myMesh.position.z });
+            stoveUI.style.display = 'block';
+            stoveUI.style.left = stovePos.x + 'px';
+            stoveUI.style.top = (stovePos.y - 20) + 'px';
+            document.getElementById('stove-bar').style.width = progress + '%';
+            document.getElementById('stove-bar').style.background = '#2196f3';
+
+            stoveBadge.style.display = 'block';
+            stoveBadge.style.left = stovePos.x + 'px';
+            stoveBadge.style.top = (stovePos.y - 40) + 'px';
+            stoveBadge.innerText = "กำลังต้ม...";
+            stoveBadge.style.background = "rgba(0,0,0,0.8)";
+
+            if(stoveTimer >= STOVE_TIME) {
+                stoveState = "สุกแล้ว";
+            }
+        } else if(stoveState === "สุกแล้ว") {
+            stoveUI.style.display = 'block';
+            stoveUI.style.left = stovePos.x + 'px';
+            stoveUI.style.top = (stovePos.y - 20) + 'px';
+            document.getElementById('stove-bar').style.width = '100%';
+            document.getElementById('stove-bar').style.background = '#4caf50';
+
+            stoveBadge.style.display = 'block';
+            stoveBadge.style.left = stovePos.x + 'px';
+            stoveBadge.style.top = (stovePos.y - 40) + 'px';
+            stoveBadge.innerText = "สุกแล้ว! (กด E เก็บ)";
+            stoveBadge.style.background = "#4caf50";
+        } else {
+            stoveUI.style.display = 'none';
+            stoveBadge.style.display = 'none';
+        }
+
+        // --- ระบบเคลื่อนที่ ---
+        if(!isGameOver && !isChopping) {
+            const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
+            const speed = 0.08;
+            let moved = false;
+
+            if (move.up && myMesh.position.z > -4) { myMesh.position.z -= speed; moved = true; }
+            if (move.down && myMesh.position.z < 4) { myMesh.position.z += speed; moved = true; }
+            if (move.left && myMesh.position.x > -5) { myMesh.position.x -= speed; moved = true; }
+            if (move.right && myMesh.position.x < 5) { myMesh.position.x += speed; moved = true; }
+
+            if (moved) {
+                socket.emit('playerMove', { roomId: roomId, role: myRole, x: myMesh.position.x, z: myMesh.position.z });
+            }
         }
 
         renderer.render(scene, camera);
     }
 
-    window.addEventListener('resize', () => {
-        if(camera && renderer) {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-    });
-<\/script>
-</body>
-</html>
-    `);
-});
-
-let waitingQueue = [];
-
-io.on('connection', (socket) => {
-    socket.on('joinMatchmaking', () => {
-        if (!waitingQueue.includes(socket.id)) {
-            waitingQueue.push(socket.id);
-        }
-
-        if (waitingQueue.length >= 2) {
-            const p1Socket = waitingQueue.shift();
-            const p2Socket = waitingQueue.shift();
-            const roomId = 'room_' + Date.now();
-
-            io.to(p1Socket).emit('matchStart', { roomId: roomId, role: 'p1' });
-            io.to(p2Socket).emit('matchStart', { roomId: roomId, role: 'p2' });
-        }
-    });
-
-    socket.on('playerMove', (data) => {
-        socket.broadcast.emit('playerMoved', data);
-    });
-
-    socket.on('updateScore', (data) => {
-        io.emit('scoreUpdated', data);
-    });
-
-    socket.on('disconnect', () => {
-        waitingQueue = waitingQueue.filter(id => id !== socket.id);
-    });
-});
-
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log('Server running on port ' + PORT));
+    window.addEventListener('resize',
