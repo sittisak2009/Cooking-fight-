@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Cooking Battle</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; font-family: sans-serif; }
+        #ui { position: absolute; top: 15px; left: 15px; color: #fff; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px; }
+        #instructions { position: absolute; bottom: 15px; left: 15px; color: #fff; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; font-size: 13px; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+<div id="ui">
+    <h3 style="margin:0 0 10px 0; color:#ffca28;">Cooking Battle 3D</h3>
+    <div>คะแนน: <span id="score" style="color:#4caf50; font-weight:bold;">0</span></div>
+    <div>ในมือ: <span id="holding">ไม่มี</span></div>
+    <div>เตา: <span id="stove">ว่าง</span></div>
+</div>
+<div id="instructions">[W,A,S,D] เดิน | [E] หยิบ/วาง/ส่งอาหาร</div>
+
+<script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a24);
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 8, 8);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(5, 10, 7);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+    // Objects
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial({ color: 0x333344 }));
+    floor.rotation.x = -Math.PI / 2;
+    scene.add(floor);
+
+    const player = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.8), new THREE.MeshStandardMaterial({ color: 0x2196f3 }));
+    player.position.set(0, 0.6, 2);
+    scene.add(player);
+
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.2), new THREE.MeshStandardMaterial({ color: 0x4caf50 }));
+    crate.position.set(-2.5, 0.5, -2);
+    scene.add(crate);
+
+    const stove = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.2), new THREE.MeshStandardMaterial({ color: 0xf44336 }));
+    stove.position.set(0, 0.5, -2);
+    scene.add(stove);
+
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1, 1.2), new THREE.MeshStandardMaterial({ color: 0xffeb3b }));
+    counter.position.set(2.5, 0.5, -2);
+    scene.add(counter);
+
+    // Logic
+    let score = 0, holding = null, stoveState = "ว่าง", timer = 0;
+    const keys = {};
+    window.addEventListener('keydown', e => {
+        keys[e.key.toLowerCase()] = true;
+        if(e.key.toLowerCase() === 'e') {
+            if(player.position.distanceTo(crate.position) < 1.8 && !holding) holding = "Raw Food";
+            else if(player.position.distanceTo(stove.position) < 1.8) {
+                if(holding === "Raw Food" && stoveState === "ว่าง") { holding = null; stoveState = "กำลังต้ม..."; timer = 0; }
+                else if(!holding && stoveState === "สุกแล้ว!") { holding = "Cooked Food"; stoveState = "ว่าง"; }
+            }
+            else if(player.position.distanceTo(counter.position) < 1.8 && holding === "Cooked Food") { score += 100; holding = null; }
+            updateUI();
+        }
+    });
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    function updateUI() {
+        document.getElementById('score').innerText = score;
+        document.getElementById('holding').innerText = holding || 'ไม่มี';
+        document.getElementById('stove').innerText = stoveState;
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const spd = 0.07;
+        if(keys['w'] && player.position.z > -4) player.position.z -= spd;
+        if(keys['s'] && player.position.z < 4) player.position.z += spd;
+        if(keys['a'] && player.position.x > -4) player.position.x -= spd;
+        if(keys['d'] && player.position.x < 4) player.position.x += spd;
+
+        if(stoveState === "กำลังต้ม...") {
+            timer += 0.016;
+            if(timer >= 3) { stoveState = "สุกแล้ว!"; updateUI(); }
+        }
+        renderer.render(scene, camera);
+    }
+    animate();
+</script>
+</body>
+</html>
