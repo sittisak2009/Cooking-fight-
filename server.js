@@ -162,14 +162,13 @@ app.get('/', (req, res) => {
     let myScore = 0;
     let isGameOver = false;
 
-    // สถานะเตา และ เขียง
-    let stoveState = "ว่าง"; // "ว่าง", "กำลังต้ม", "สุกแล้ว"
+    let stoveState = "ว่าง";
     let stoveTimer = 0;
-    const STOVE_TIME = 4.0; // ต้ม 4 วินาที
+    const STOVE_TIME = 4.0;
 
     let isChopping = false;
     let chopTimer = 0;
-    const CHOP_TIME = 2.0; // หั่น 2 วินาที
+    const CHOP_TIME = 2.0;
 
     let p1ItemMesh, p2ItemMesh;
     const move = { up: false, down: false, left: false, right: false };
@@ -258,16 +257,13 @@ app.get('/', (req, res) => {
         if(isGameOver || isChopping) return;
         const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
 
-        // 1. หยิบผักดิบ
         if(myMesh.position.distanceTo(crateStation.position) < 1.8 && !myHolding) {
             myHolding = "Raw";
         }
-        // 2. เริ่มหั่นผักที่เขียง
         else if(myMesh.position.distanceTo(chopStation.position) < 1.8 && myHolding === "Raw") {
             isChopping = true;
             chopTimer = 0;
         }
-        // 3. วางผักลงเตา / หยิบออกจากเตา
         else if(myMesh.position.distanceTo(stoveStation.position) < 1.8) {
             if(myHolding === "Chopped" && stoveState === "ว่าง") {
                 myHolding = null;
@@ -278,7 +274,6 @@ app.get('/', (req, res) => {
                 stoveState = "ว่าง";
             }
         }
-        // 4. ส่งอาหาร
         else if(myMesh.position.distanceTo(serveStation.position) < 1.8 && myHolding === "Cooked") {
             myHolding = null;
             myScore += 100;
@@ -292,12 +287,11 @@ app.get('/', (req, res) => {
         socket.emit('updateHolding', { roomId: roomId, role: myRole, item: myHolding });
     }
 
-    // คำนวณพิกัด 3D แปลงเป็น 2D บนหน้าจอ
     function toScreenPosition(obj, camera) {
         var vector = new THREE.Vector3();
         obj.updateMatrixWorld();
         vector.setFromMatrixPosition(obj.matrixWorld);
-        vector.y += 1.2; // สูงเหนือวัตถุ
+        vector.y += 1.2;
         vector.project(camera);
 
         var widthHalf = window.innerWidth / 2;
@@ -385,7 +379,6 @@ app.get('/', (req, res) => {
         const delta = (currentTime - lastTime) / 1000;
         lastTime = currentTime;
 
-        // --- ระบบหั่นผัก ---
         if(isChopping) {
             chopTimer += delta;
             const progress = Math.min((chopTimer / CHOP_TIME) * 100, 100);
@@ -415,7 +408,6 @@ app.get('/', (req, res) => {
             }
         }
 
-        // --- ระบบเวลาเตาต้ม ---
         const stovePos = toScreenPosition(stoveStation, camera);
         const stoveUI = document.getElementById('stove-ui');
         const stoveBadge = document.getElementById('stove-badge');
@@ -456,7 +448,6 @@ app.get('/', (req, res) => {
             stoveBadge.style.display = 'none';
         }
 
-        // --- ระบบเคลื่อนที่ ---
         if(!isGameOver && !isChopping) {
             const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
             const speed = 0.08;
@@ -475,4 +466,21 @@ app.get('/', (req, res) => {
         renderer.render(scene, camera);
     }
 
-    window.addEventListener('resize',
+    window.addEventListener('resize', () => {
+        if(camera && renderer) {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    });
+</script>
+</body>
+</html>
+    `);
+});
+
+let waitingQueue = [];
+let roomData = {};
+
+io.on('connection', (socket) => {
+    socket.on('joi
