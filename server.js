@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Cooking Battle - Order Rush</title>
+    <title>3D Cooking Battle - Smooth Movement</title>
     <style>
         * { box-sizing: border-box; touch-action: none; margin: 0; padding: 0; user-select: none; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         body { background: #0b0c10; overflow: hidden; color: #fff; }
@@ -56,7 +56,6 @@ app.get('/', (req, res) => {
             font-size: 20px; font-weight: 900; box-shadow: 0 0 15px rgba(255, 8, 68, 0.4);
         }
 
-        /* Order Banner */
         #order-container {
             position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
             display: flex; gap: 10px; pointer-events: none;
@@ -74,7 +73,6 @@ app.get('/', (req, res) => {
             font-size: 13px; color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);
         }
 
-        /* 3D Progress & Badges */
         .progress-container {
             position: absolute; width: 70px; height: 10px; background: rgba(0,0,0,0.8);
             border: 1px solid rgba(255,255,255,0.4); border-radius: 5px; overflow: hidden; display: none;
@@ -89,7 +87,6 @@ app.get('/', (req, res) => {
             white-space: nowrap; border: 1px solid rgba(255,255,255,0.2);
         }
 
-        /* Controls Mobile */
         .controls { 
             position: absolute; bottom: 25px; left: 25px; 
             display: grid; grid-template-columns: repeat(3, 55px); gap: 8px; 
@@ -138,7 +135,6 @@ app.get('/', (req, res) => {
     <button class="start-btn" onclick="location.reload()">เล่นใหม่อีกครั้ง</button>
 </div>
 
-<!-- Progress UIs -->
 <div id="p1-chop-ui" class="progress-container"><div id="p1-chop-bar" class="progress-bar"></div></div>
 <div id="p1-chop-badge" class="status-badge">กำลังหั่น...</div>
 
@@ -202,6 +198,9 @@ app.get('/', (req, res) => {
     let myScore = 0;
     let isGameOver = false;
 
+    // ระบบเป้าหมายพิกัดสำหรับ Smoothing (Interpolation)
+    let opponentTarget = { x: 0, z: 0, rot: 0 };
+
     let stationStates = {
         chop: { active: false, timer: 0, time: 2.0 },
         pot: { state: "ว่าง", timer: 0, time: 3.5 },
@@ -244,7 +243,6 @@ app.get('/', (req, res) => {
         return group;
     }
 
-    // --- โมเดลอาหารใหม่ ---
     function createFoodMesh(type) {
         const group = new THREE.Group();
         if(type === "Raw") {
@@ -287,7 +285,6 @@ app.get('/', (req, res) => {
         }
     }
 
-    // --- โมเดลอุปกรณ์ทำครัวใหม่ (เขียง, หม้อ, เตาทอด) ---
     function createStation(x, z, type) {
         const group = new THREE.Group();
         const base = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.8, 1.3), new THREE.MeshStandardMaterial({ color: 0x333344 }));
@@ -299,28 +296,24 @@ app.get('/', (req, res) => {
             box.position.y = 0.9;
             group.add(box);
         } else if(type === 'chop') {
-            // เขียงไม้ + มีด
             const board = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.08, 16), new THREE.MeshStandardMaterial({ color: 0xd7ccc8 }));
             board.position.y = 0.84;
             const knife = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.4), new THREE.MeshStandardMaterial({ color: 0xaaaaaa }));
             knife.position.set(0.2, 0.95, 0);
             group.add(board); group.add(knife);
         } else if(type === 'pot') {
-            // หม้อต้มซุป
             const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.4, 0.5, 16), new THREE.MeshStandardMaterial({ color: 0xe74c3c, metalness: 0.5 }));
             pot.position.y = 1.05;
             const liquid = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.05, 16), new THREE.MeshStandardMaterial({ color: 0x3498db }));
             liquid.position.y = 1.26;
             group.add(pot); group.add(liquid);
         } else if(type === 'fry') {
-            // เตาทอด
             const fryer = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 0.9), new THREE.MeshStandardMaterial({ color: 0x7f8c8d, metalness: 0.8 }));
             fryer.position.y = 1.0;
             const oil = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.05, 0.8), new THREE.MeshStandardMaterial({ color: 0xf39c12 }));
             oil.position.y = 1.2;
             group.add(fryer); group.add(oil);
         } else if(type === 'serve') {
-            // จานเสิร์ฟส่งงาน
             const mat = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.05, 16), new THREE.MeshStandardMaterial({ color: 0x9b59b6 }));
             mat.position.y = 0.83;
             group.add(mat);
@@ -358,14 +351,12 @@ app.get('/', (req, res) => {
         divider.position.y = 0.01;
         scene.add(divider);
 
-        // โซน P1 (ฝั่งซ้าย)
         stations.p1_crate = createStation(-5.5, -3, 'crate');
         stations.p1_chop  = createStation(-3.8, -3, 'chop');
         stations.p1_pot   = createStation(-2.1, -3, 'pot');
         stations.p1_fry   = createStation(-0.8, -3, 'fry');
         stations.p1_serve = createStation(-3.2, 3.5, 'serve');
 
-        // โซน P2 (ฝั่งขวา)
         stations.p2_crate = createStation(5.5, -3, 'crate');
         stations.p2_chop  = createStation(3.8, -3, 'chop');
         stations.p2_pot   = createStation(2.1, -3, 'pot');
@@ -374,6 +365,12 @@ app.get('/', (req, res) => {
 
         p1Group = createHumanoid(0x00f2fe); p1Group.position.set(-3.2, 0, 0); scene.add(p1Group);
         p2Group = createHumanoid(0xff0844); p2Group.position.set(3.2, 0, 0); scene.add(p2Group);
+
+        opponentTarget = {
+            x: myRole === 'p1' ? 3.2 : -3.2,
+            z: 0,
+            rot: 0
+        };
 
         setupControls();
         animate();
@@ -412,9 +409,8 @@ app.get('/', (req, res) => {
             }
         }
         else if(myGroup.position.distanceTo(stations[prefix + 'serve'].position) < 1.5 && myHolding) {
-            // เช็คว่าตรงตามใบสั่งซื้อหรือไม่
             if(myHolding === currentOrder) {
-                myScore += 200; // ทำตามออเดอร์สำเร็จได้ 200 คะแนน
+                myScore += 200;
                 socket.emit('updateScore', { roomId: roomId, role: myRole, score: myScore });
                 socket.emit('completeOrder', { roomId: roomId });
             }
@@ -472,11 +468,12 @@ app.get('/', (req, res) => {
         actBtn.addEventListener('click', interact);
     }
 
+    // เก็บเป้าหมายไว้ทำ Interpolation
     socket.on('playerMoved', (data) => {
-        const target = (data.role === 'p1') ? p1Group : p2Group;
-        if(target) {
-            target.position.set(data.x, 0, data.z);
-            if(data.rot) target.rotation.y = data.rot;
+        if(data.role !== myRole) {
+            opponentTarget.x = data.x;
+            opponentTarget.z = data.z;
+            opponentTarget.rot = data.rot;
         }
     });
 
@@ -518,6 +515,14 @@ app.get('/', (req, res) => {
         const delta = (currentTime - lastTime) / 1000;
         lastTime = currentTime;
         const prefix = myRole + '_';
+
+        // --- อัปเดตตำแหน่งคู่แข่งให้อยู่ในสถานะ Smooth (Lerp) ---
+        const opGroup = (myRole === 'p1') ? p2Group : p1Group;
+        if(opGroup) {
+            opGroup.position.x += (opponentTarget.x - opGroup.position.x) * 0.25;
+            opGroup.position.z += (opponentTarget.z - opGroup.position.z) * 0.25;
+            opGroup.rotation.y += (opponentTarget.rot - opGroup.rotation.y) * 0.25;
+        }
 
         // --- หลอดเวลาหั่นผัก ---
         if(stationStates.chop.active) {
@@ -593,7 +598,7 @@ app.get('/', (req, res) => {
             fryUI.style.display = 'none'; fryBadge.style.display = 'none';
         }
 
-        // --- การเคลื่อนที่ ---
+        // --- การเคลื่อนที่ของผู้เล่นฝั่งตนเอง ---
         if(!isGameOver && !stationStates.chop.active) {
             const myGroup = (myRole === 'p1') ? p1Group : p2Group;
             const speed = 0.08;
