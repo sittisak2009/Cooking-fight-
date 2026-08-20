@@ -10,7 +10,7 @@ app.get('/', (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Cooking Online 1v1</title>
+    <title>3D Cooking Online 1v1 - Full Game</title>
     <style>
         * { box-sizing: border-box; touch-action: none; margin: 0; padding: 0; user-select: none; }
         body { background: #0e0e17; font-family: sans-serif; overflow: hidden; color: #fff; }
@@ -35,21 +35,34 @@ app.get('/', (req, res) => {
 
         #game-ui { display: none; position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 10; }
         .top-bar { position: absolute; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; font-weight: bold; }
-        .p-tag { background: rgba(0,0,0,0.7); padding: 8px 15px; border-radius: 8px; }
+        .p-tag { background: rgba(0,0,0,0.75); padding: 8px 15px; border-radius: 8px; font-size: 14px; }
         
-        /* ปุ่มควบคุมสำหรับมือถือ (Mobile Controls) */
+        #item-status {
+            position: absolute; top: 60px; left: 15px; background: rgba(0,0,0,0.8);
+            padding: 10px; border-radius: 8px; font-size: 14px; color: #ffca28;
+        }
+
+        /* ปุ่มเดินและปุ่มแอ็กชันมือถือ */
         .controls { 
-            position: absolute; bottom: 25px; left: 25px; 
-            display: grid; grid-template-columns: repeat(3, 55px); gap: 8px; 
+            position: absolute; bottom: 20px; left: 20px; 
+            display: grid; grid-template-columns: repeat(3, 50px); gap: 6px; 
             pointer-events: auto; z-index: 20; 
         }
         .btn { 
-            width: 55px; height: 55px; background: rgba(255,255,255,0.25); 
-            border: 2px solid rgba(255,255,255,0.8); border-radius: 12px; 
+            width: 50px; height: 50px; background: rgba(255,255,255,0.25); 
+            border: 2px solid rgba(255,255,255,0.8); border-radius: 10px; 
             color: #fff; display: flex; align-items: center; justify-content: center; 
-            font-size: 22px; font-weight: bold;
+            font-size: 20px; font-weight: bold;
         }
-        .btn:active { background: rgba(255,152,0,0.6); }
+        
+        #action-btn {
+            position: absolute; bottom: 25px; right: 25px;
+            width: 70px; height: 70px; background: #ff9800; border: 3px solid #fff;
+            border-radius: 50%; color: #fff; font-size: 24px; font-weight: bold;
+            display: flex; align-items: center; justify-content: center;
+            pointer-events: auto; z-index: 20; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        #action-btn:active { transform: scale(0.9); }
 
         #canvas-container { width: 100vw; height: 100vh; }
     </style>
@@ -65,21 +78,24 @@ app.get('/', (req, res) => {
 
 <div id="searching-screen" class="overlay-screen" style="display: none;">
     <div class="spinner"></div>
-    <h2 style="margin-bottom: 10px;">กำลังค้นหาผู้เล่นคนอื่น...</h2>
-    <p style="color: #aaa; font-size: 14px;">เล่นได้ทั้ง PC (W A S D / ลูกศร) และ Mobile (กดปุ่มบนจอ)</p>
+    <h2 style="margin-bottom: 10px;">กำลังค้นหาคู่แข่ง...</h2>
+    <p style="color: #aaa; font-size: 14px;">PC: เดินด้วย W A S D / กด E เพื่อทำอาหาร | Mobile: ใช้ปุ่มบนจอ</p>
 </div>
 
 <div id="game-ui">
     <div class="top-bar">
-        <div class="p-tag" style="border-left: 4px solid #2196f3;" id="p1-label">คุณ (P1)</div>
-        <div class="p-tag" style="border-left: 4px solid #f44336;" id="p2-label">ผู้เล่นออนไลน์ (P2)</div>
+        <div class="p-tag" style="border-left: 4px solid #2196f3;" id="p1-label">คุณ (P1): <span id="p1-score">0</span> คะแนน</div>
+        <div class="p-tag" style="border-left: 4px solid #f44336;" id="p2-label">คู่แข่ง (P2): <span id="p2-score">0</span> คะแนน</div>
     </div>
+
+    <div id="item-status">ในมือ: <span id="holding-text" style="color:#fff;">ไม่มี</span></div>
     
-    <!-- ปุ่มกดบนหน้าจอมือถือ -->
     <div class="controls">
         <div></div><div class="btn" id="btn-up">▲</div><div></div>
         <div class="btn" id="btn-left">◀</div><div class="btn" id="btn-down">▼</div><div class="btn" id="btn-right">▶</div>
     </div>
+
+    <div id="action-btn">E</div>
 </div>
 
 <div id="canvas-container"></div>
@@ -106,6 +122,12 @@ app.get('/', (req, res) => {
     });
 
     let scene, camera, renderer, p1Mesh, p2Mesh;
+    let crateStation, chopStation, stoveStation, serveStation;
+    let myHolding = null; // null, "Raw", "Chopped", "Cooked"
+    let stoveState = "ว่าง"; // "ว่าง", "กำลังต้ม...", "สุกแล้ว!"
+    let stoveTimer = 0;
+    let myScore = 0;
+
     const move = { up: false, down: false, left: false, right: false };
 
     function init3DScene() {
@@ -113,7 +135,6 @@ app.get('/', (req, res) => {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a1a2e);
 
-        // ปรับระยะกล้องให้ถอยออกมาเห็นสนามกว้างขึ้นทั้งบน PC และ Mobile
         camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 11, 9);
         camera.lookAt(0, 0, 0);
@@ -127,14 +148,25 @@ app.get('/', (req, res) => {
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
+        // พื้นสนาม
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(12, 9), new THREE.MeshStandardMaterial({ color: 0x2e2e48 }));
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
-        const table = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0xff9800 }));
-        table.position.set(0, 0.4, 0);
-        scene.add(table);
+        // โต๊ะทำอาหารประเภทต่างๆ (Stations)
+        function createStation(x, z, color) {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: color }));
+            m.position.set(x, 0.4, z);
+            scene.add(m);
+            return m;
+        }
 
+        crateStation = createStation(-4, -2, 0x4caf50);  // ลังดิบ (เขียว)
+        chopStation  = createStation(-1.3, -2, 0xff9800); // เขียง (ส้ม)
+        stoveStation = createStation(1.3, -2, 0xf44336);   // เตา (แดง)
+        serveStation = createStation(4, -2, 0xffeb3b);   // โต๊ะส่ง (เหลือง)
+
+        // ผู้เล่น P1 / P2
         p1Mesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.8), new THREE.MeshStandardMaterial({ color: 0x2196f3 }));
         p1Mesh.position.set(-3, 0.6, 2);
         scene.add(p1Mesh);
@@ -147,13 +179,45 @@ app.get('/', (req, res) => {
         animate();
     }
 
+    function interact() {
+        const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
+
+        // 1. หยิบผักดิบจากลังเขียว
+        if(myMesh.position.distanceTo(crateStation.position) < 1.8 && !myHolding) {
+            myHolding = "ผักดิบ";
+        }
+        // 2. หั่นที่เขียงส้ม
+        else if(myMesh.position.distanceTo(chopStation.position) < 1.8 && myHolding === "ผักดิบ") {
+            myHolding = "ผักหั่นแล้ว";
+        }
+        // 3. ใส่ต้มที่เตาแดง / หยิบออกจากเตา
+        else if(myMesh.position.distanceTo(stoveStation.position) < 1.8) {
+            if(myHolding === "ผักหั่นแล้ว" && stoveState === "ว่าง") {
+                myHolding = null;
+                stoveState = "กำลังต้ม...";
+                stoveTimer = 0;
+            } else if(!myHolding && stoveState === "สุกแล้ว!") {
+                myHolding = "ต้มผักสุก";
+                stoveState = "ว่าง";
+            }
+        }
+        // 4. ส่งอาหารที่โต๊ะเหลือง
+        else if(myMesh.position.distanceTo(serveStation.position) < 1.8 && myHolding === "ต้มผักสุก") {
+            myHolding = null;
+            myScore += 100;
+            socket.emit('updateScore', { roomId: roomId, role: myRole, score: myScore });
+        }
+
+        document.getElementById('holding-text').innerText = myHolding || 'ไม่มี';
+    }
+
     function setupControls() {
-        // รองรับคีย์บอร์ด PC (W, A, S, D หรือ ลูกศร)
         window.addEventListener('keydown', e => {
             if(e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') move.up = true;
             if(e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') move.down = true;
             if(e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') move.left = true;
             if(e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') move.right = true;
+            if(e.key === 'e' || e.key === 'E') interact();
         });
 
         window.addEventListener('keyup', e => {
@@ -163,24 +227,21 @@ app.get('/', (req, res) => {
             if(e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') move.right = false;
         });
 
-        // รองรับระบบ Touch บนมือถือ
         const bindTouch = (id, dir) => {
             const el = document.getElementById(id);
             if(!el) return;
-            
-            const startHandler = (e) => { e.preventDefault(); move[dir] = true; };
-            const endHandler = (e) => { e.preventDefault(); move[dir] = false; };
-
-            el.addEventListener('touchstart', startHandler, { passive: false });
-            el.addEventListener('touchend', endHandler, { passive: false });
-            el.addEventListener('mousedown', startHandler);
-            el.addEventListener('mouseup', endHandler);
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); move[dir] = true; }, { passive: false });
+            el.addEventListener('touchend', (e) => { e.preventDefault(); move[dir] = false; }, { passive: false });
         };
 
         bindTouch('btn-up', 'up');
         bindTouch('btn-down', 'down');
         bindTouch('btn-left', 'left');
         bindTouch('btn-right', 'right');
+
+        const actBtn = document.getElementById('action-btn');
+        actBtn.addEventListener('touchstart', (e) => { e.preventDefault(); interact(); }, { passive: false });
+        actBtn.addEventListener('click', interact);
     }
 
     socket.on('playerMoved', (data) => {
@@ -188,8 +249,25 @@ app.get('/', (req, res) => {
         if(data.role === 'p2') p2Mesh.position.set(data.x, 0.6, data.z);
     });
 
-    function animate() {
+    socket.on('scoreUpdated', (data) => {
+        if(data.role === 'p1') document.getElementById('p1-score').innerText = data.score;
+        if(data.role === 'p2') document.getElementById('p2-score').innerText = data.score;
+    });
+
+    let lastTime = performance.now();
+    function animate(currentTime) {
         requestAnimationFrame(animate);
+
+        const delta = (currentTime - lastTime) / 1000;
+        lastTime = currentTime;
+
+        // ระบบเวลาต้มอาหาร
+        if(stoveState === "กำลังต้ม...") {
+            stoveTimer += delta;
+            if(stoveTimer >= 4) {
+                stoveState = "สุกแล้ว!";
+            }
+        }
 
         const myMesh = (myRole === 'p1') ? p1Mesh : p2Mesh;
         const speed = 0.08;
@@ -201,12 +279,7 @@ app.get('/', (req, res) => {
         if (move.right && myMesh.position.x < 5) { myMesh.position.x += speed; moved = true; }
 
         if (moved) {
-            socket.emit('playerMove', {
-                roomId: roomId,
-                role: myRole,
-                x: myMesh.position.x,
-                z: myMesh.position.z
-            });
+            socket.emit('playerMove', { roomId: roomId, role: myRole, x: myMesh.position.x, z: myMesh.position.z });
         }
 
         renderer.render(scene, camera);
@@ -245,6 +318,10 @@ io.on('connection', (socket) => {
 
     socket.on('playerMove', (data) => {
         socket.broadcast.emit('playerMoved', data);
+    });
+
+    socket.on('updateScore', (data) => {
+        io.emit('scoreUpdated', data);
     });
 
     socket.on('disconnect', () => {
